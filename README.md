@@ -176,7 +176,7 @@ $art.setTraits({ Palette: "Sunset", Layers: 5 });
 $art.getTraits(); // -> the attributes array (or null)
 ```
 
-### `$art.snapshot()`
+### `$art.snapshot(freezeFn?)`
 
 Appends a hidden `#art-snapshot-ready` marker so a headless renderer knows the canvas is finished. Idempotent. **Call it last**, once traits are set and drawing is done.
 
@@ -184,6 +184,24 @@ Appends a hidden `#art-snapshot-ready` marker so a headless renderer knows the c
 $art.setTraits(chosen);
 $art.snapshot(); // the renderer waits on #art-snapshot-ready
 ```
+
+#### Animated pieces
+
+A still piece never changes after `draw()`, so the screenshot is whatever is on the canvas. An **animated** piece keeps moving, and a headless renderer grabs pixels at some unpredictable moment — so the captured frame isn't stable.
+
+Pass `snapshot()` an optional **freeze callback** to stop the animation at the moment you call it. It runs **only under the snapshot capture user agent** (Cloudflare is configured to send a UA containing `tl-gen-art`), so collectors keep their live animation while the capture sees a held frame:
+
+```js
+// p5: stop the draw loop
+$art.snapshot(() => noLoop());
+
+// raw canvas / three.js: cancel your own loop
+$art.snapshot(() => cancelAnimationFrame(rafId));
+```
+
+The library does **not** freeze for you, and a held frame is not automatically reproducible — that's on you. Call `snapshot()` at a deterministic point (e.g. a fixed frame count), not on wall-clock time, so the same token always yields the same thumbnail.
+
+`$art.captureMode` is `true` under that same capture user agent if you'd rather branch your render path (e.g. jump straight to a hero frame) instead of freezing in place.
 
 ---
 
@@ -228,10 +246,13 @@ curl -X POST 'https://api.cloudflare.com/client/v4/accounts/<accountId>/browser-
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://your-token-host.example/index.html?tokenId=42&blockhash=0xabc...&minter=0x01...",
+    "userAgent": "Mozilla/5.0 (compatible; tl-gen-art/1; +snapshot)",
     "viewport": { "width": 800, "height": 800, "deviceScaleFactor": 2 },
     "waitForSelector": { "selector": "#art-snapshot-ready", "timeout": 30000 }
   }'
 ```
+
+The `userAgent` must contain the `tl-gen-art` sentinel (substring match) — that's what makes `$art.snapshot(freezeFn)` engage the freeze and what `$art.captureMode` keys off. Omit it and the capture still works for still pieces; animated pieces just won't freeze.
 
 You can also pass the token HTML inline with `"html": "<!doctype html>..."` instead of `"url"` — useful when you don't want to host a page per token.
 
@@ -248,6 +269,7 @@ const res = await fetch(
     },
     body: JSON.stringify({
       url: tokenUrl,
+      userAgent: "Mozilla/5.0 (compatible; tl-gen-art/1; +snapshot)",
       viewport: { width: 800, height: 800, deviceScaleFactor: 2 },
       waitForSelector: { selector: "#art-snapshot-ready", timeout: 30000 },
     }),

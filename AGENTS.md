@@ -43,7 +43,9 @@ For Cloudflare's Browser Rendering snapshot API. Both append hidden DOM that sur
 
 - `$art.setTraits({ Palette: "Sunset", Layers: 5 })` — maps a plain `{ name: value }` object to OpenSea attributes `[{ trait_type, value }]` and writes it into a hidden `<script type="application/json" id="art-traits">`. Idempotent (replaces on re-call). Non-object input throws.
 - `$art.getTraits()` — returns the current attributes array (or `null`).
-- `$art.snapshot()` — appends a hidden `#art-snapshot-ready` marker. Cloudflare waits on it via `waitForSelector: "#art-snapshot-ready"`. Idempotent. Call last, once traits are set and drawing is done.
+- `$art.snapshot(freezeFn?)` — appends a hidden `#art-snapshot-ready` marker. Cloudflare waits on it via `waitForSelector: "#art-snapshot-ready"`. Idempotent. Call last, once traits are set and drawing is done.
+  - **Animated pieces:** pass an optional `freezeFn` to stop the animation, e.g. `$art.snapshot(() => noLoop())` or one that cancels your `requestAnimationFrame` loop. It runs **only under the snapshot capture user agent** (Cloudflare sends the `tl-gen-art` sentinel UA — must match the infra config), so the screenshot captures the frame that was live at call time while collectors keep animating. The library does not freeze for you; whether that frame is reproducible is the artist's responsibility — call `snapshot()` at a deterministic point (e.g. a fixed frame count), not on wall-clock time.
+- `$art.captureMode` — `true` when running under the snapshot capture user agent. Branch on it if you want a different render path for the thumbnail (e.g. jump straight to a hero frame).
 
 ## Determinism rules — do not break these
 

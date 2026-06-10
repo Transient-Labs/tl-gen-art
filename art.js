@@ -19,6 +19,12 @@
  * Snapshot + traits (for Cloudflare Browser Rendering):
  *   $art.setTraits({ Palette: "Sunset", Layers: 5 }); // hidden #art-traits JSON
  *   $art.snapshot();                                  // hidden #art-snapshot-ready marker
+ *   $art.snapshot(() => noLoop());                    // + freeze the frame under capture
+ *
+ * For animated pieces, pass snapshot() a freeze callback. It runs ONLY under the
+ * snapshot capture user agent (live collector views never freeze), letting the
+ * screenshot grab the frame that was live at call time. Making that frame
+ * reproducible is the artist's job: call snapshot() at a deterministic point.
  */
 const $art = (function () {
   const params = new URLSearchParams(window.location.search);
@@ -167,9 +173,23 @@ const $art = (function () {
     return currentTraits;
   }
 
+  // Capture environment detection. Cloudflare Browser Rendering is configured to
+  // send this sentinel user agent; live collector views never match. Keep in sync
+  // with the snapshot infra's userAgent setting.
+  const CAPTURE_UA = "tl-gen-art";
+  const captureMode =
+    typeof navigator !== "undefined" &&
+    new RegExp(CAPTURE_UA).test(navigator.userAgent || "");
+
   // Signal that the canvas is fully drawn: append a hidden marker so Cloudflare's
   // Browser Rendering API can waitForSelector("#art-snapshot-ready"). Idempotent.
-  function snapshot() {
+  //
+  // For animated pieces, pass a freeze callback (e.g. () => noLoop(), or one that
+  // cancels your rAF loop). It runs ONLY under the capture user agent, so the
+  // screenshot captures the frame live at call time while collectors keep their
+  // animation. Reproducibility of that frame is the artist's responsibility.
+  function snapshot(onCapture) {
+    if (captureMode && typeof onCapture === "function") onCapture();
     let el = document.getElementById("art-snapshot-ready");
     if (!el) {
       el = document.createElement("div");
@@ -191,6 +211,7 @@ const $art = (function () {
     setTraits,
     getTraits: () => currentTraits,
     snapshot,
+    captureMode,
   };
 })();
 
