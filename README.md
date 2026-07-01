@@ -6,7 +6,7 @@ The contract: **the same mint inputs always produce the exact same output.** Rel
 
 It's renderer-agnostic. The library only emits numbers, booleans, and array picks, so it feeds p5.js, three.js, or a raw `<canvas>` equally well.
 
-- **One file:** `art.js` (~7 KB, no build step, no dependencies)
+- **One file:** `art.js` (~11 KB, no build step, no dependencies)
 - **One global:** `window.$art`, ready synchronously at load
 - **Reproducible:** seeded with [xmur3](https://github.com/bryc/code/blob/master/jshash/PRNG.md) → [sfc32](https://github.com/bryc/code/blob/master/jshash/PRNG.md)
 
@@ -54,7 +54,7 @@ Load `art.js` **before** your sketch. It reads the mint params from the URL and 
 </html>
 ```
 
-A complete working sketch lives in [`p5js-example.html`](./p5js-example.html).
+Complete working sketches live in [`p5js-example.html`](./p5js-example.html) (seeded shapes) and [`noise-example.html`](./noise-example.html) (a `$art.noise` flow field).
 
 ### Run it locally
 
@@ -118,18 +118,18 @@ console.log("$art seed:", $art.getSeed());
 
 ## Random API
 
-All randomness for your output **must** flow through these. Never use `Math.random()`, `Date.now()`, p5's native `random()`/`noise()`, or `THREE.MathUtils.*` — they're unseeded and break reproduction.
+All randomness for your output **must** flow through these. Never use `Math.random()`, `Date.now()`, p5's native `random()`/`noise()`, or `THREE.MathUtils.*` — they're unseeded and break reproduction. (For noise, see [Noise](#noise) below.)
 
-| Call                          | Range                          | Notes                          |
-| ----------------------------- | ------------------------------ | ------------------------------ |
-| `$art.random()`               | `[0, 1)`                       | exclusive max                  |
-| `$art.random(max)`            | `[0, max)`                     | exclusive max                  |
-| `$art.random(min, max)`       | `[min, max)`                   | exclusive max                  |
-| `$art.randomInt(max)`         | `[0, max]`                     | **inclusive** both ends        |
-| `$art.randomInt(min, max)`    | `[min, max]`                   | **inclusive** both ends        |
-| `$art.randomBool(p = 0.5)`    | `true` with probability `p`    |                                |
-| `$art.randomElement(array)`   | uniform pick                   | empty array → `undefined`      |
-| `$art.mint`                   | raw mint values                | for traits/metadata            |
+| Call                          | Range                       | Notes                     |
+| ----------------------------- | --------------------------- | ------------------------- |
+| `$art.random()`               | `[0, 1)`                    | exclusive max             |
+| `$art.random(max)`            | `[0, max)`                  | exclusive max             |
+| `$art.random(min, max)`       | `[min, max)`                | exclusive max             |
+| `$art.randomInt(max)`         | `[0, max]`                  | **inclusive** both ends   |
+| `$art.randomInt(min, max)`    | `[min, max]`                | **inclusive** both ends   |
+| `$art.randomBool(p = 0.5)`    | `true` with probability `p` |                           |
+| `$art.randomElement(array)`   | uniform pick                | empty array → `undefined` |
+| `$art.mint`                   | raw mint values             | for traits/metadata       |
 
 ```js
 $art.random();              // 0.5234...
@@ -139,6 +139,44 @@ $art.randomBool(0.82);      // true 82% of the time
 $art.randomElement(palette);
 $art.mint;                  // { tokenId, blockhash, txHash, minter, gasPrice, gasUsed, seed }
 ```
+
+---
+
+## Noise
+
+Seeded Perlin noise for flow fields, organic texture, and displacement. Use `$art.noise()` — never p5's `noise()`, which runs on a separate, easily-broken stream.
+
+| Call                             | Range      | Notes                                          |
+| -------------------------------- | ---------- | ---------------------------------------------- |
+| `$art.noise(x, y?, z?)`          | `[0, 1)`   | Perlin; 1–3 coordinates                        |
+| `$art.noiseDetail(lod, falloff)` | —          | fractal octaves + falloff (default `4` / `0.5`) |
+
+```js
+const v = $art.noise(t);                          // 1D
+const angle = $art.noise(x * 0.005, y * 0.005) * TWO_PI; // 2D flow-field heading
+$art.noise(x * 0.01, y * 0.01, z);                // 3D — z as animation "time"
+
+$art.noiseDetail(1);      // single octave, smoother
+$art.noiseDetail(6, 0.6); // more, rougher detail
+```
+
+Scale inputs down (small multipliers) for smooth gradients; big steps look like static.
+
+**Determinism.** `$art.noise` matches p5's signatures and `[0,1)` range (a ported sketch runs unchanged) but uses a distinct, higher-quality lattice — values are **not** identical to p5's. It runs on its own sub-seed, so:
+
+- Adding or removing `noise()` calls **never perturbs** the `random()` sequence.
+- `noise(x, y, z)` is a **pure function of its coordinates** — call-order independent, unlike `random()`.
+
+`seedFrom(...)` resets the noise field too; `noiseDetail` settings persist across reseeds.
+
+**No separate noise seed.** Unlike p5, there is no `noiseSeed()` — the noise field is bound to the mint seed and always reproduces with it. That's deliberate: an arbitrary noise seed is the easiest way to break reproduction. If you need two independent-looking fields in one piece, offset the coordinates rather than reseeding:
+
+```js
+$art.noise(x, y);            // field A
+$art.noise(x + 10000, y);    // field B — effectively uncorrelated
+```
+
+See [`noise-example.html`](./noise-example.html) for a full flow-field sketch.
 
 ---
 

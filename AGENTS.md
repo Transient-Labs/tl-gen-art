@@ -35,6 +35,9 @@ Local testing: open with a query string, e.g. `index.html?tokenId=42&blockhash=0
 - `$art.randomInt(max)` → `[0, max]`; `randomInt(min, max)` → `[min, max]`. **Inclusive of both ends** (like lodash `_.random`).
 - `$art.randomBool(p = 0.5)` → `true` with probability `p`.
 - `$art.randomElement(array)` → uniform pick; works on strings, numbers, or objects. Empty array → `undefined`.
+- `$art.noise(x, y?, z?)` → `[0,1)` Perlin noise. p5-compatible signatures/range, but a distinct (higher-quality) lattice — values are NOT identical to p5's `noise()`. Runs on an independent stream seeded from the mint seed, so it never perturbs `random()` and is call-order independent. Reseeding via `seedFrom(...)` resets it too.
+- `$art.noiseDetail(lod, falloff)` → set fractal octaves and amplitude falloff (p5-compatible). Defaults to p5's `4` octaves / `0.5` falloff. Persistent detail state — unaffected by reseeding.
+- **No `noiseSeed()`** (unlike p5). The noise field is bound to the mint seed and reproduces with it; there is intentionally no way to reseed it from arbitrary input (that's the p5 footgun). For two independent-looking fields in one piece, offset the coordinates (e.g. `$art.noise(x + 10000, y)`) rather than reseeding.
 - `$art.mint` → `{ tokenId, blockhash, txHash, minter, gasPrice, gasUsed, seed }` raw values (for traits/metadata). `seed` is the curated override or `null`.
 
 ## Snapshot + traits
@@ -49,7 +52,7 @@ For Cloudflare's Browser Rendering snapshot API. Both append hidden DOM that sur
 
 ## Determinism rules — do not break these
 
-1. **All randomness must flow through `$art`.** Never use `Math.random()`, `Date.now()`, p5's native `random()`/`noise()`, or `THREE.MathUtils.randFloat()` for anything that affects the output. They are unseeded and will make tokens fail to reproduce.
+1. **All randomness must flow through `$art`.** Never use `Math.random()`, `Date.now()`, or `THREE.MathUtils.randFloat()` for anything that affects the output — they are unseeded and will make tokens fail to reproduce. For noise, use `$art.noise()`: p5's native `noise()`/`noiseSeed()` run on a **separate** PRNG stream and are an easy reproducibility footgun (forget `noiseSeed`, or seed it from something unseeded, and tokens won't reproduce).
 2. Call `$art.seedFrom(...)` exactly once, before drawing. Only re-seed to intentionally reset the stream (e.g. independent layered passes).
 3. The random stream is shared, so **output depends on call order**. Reordering drawing code changes the result. Preserve order when refactoring.
 4. Do not change which fields `seedFrom` uses once a collection has minted — it re-rolls every existing token.

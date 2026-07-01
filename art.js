@@ -94,11 +94,38 @@ const $art = (function () {
   let rand;
   let currentSeed;
 
+  // ---- noise state ----
+  // The permutation table is derived from an INDEPENDENT sub-seed so that using
+  // noise never perturbs the main random() stream (see buildNoise). noiseDetail
+  // settings are persistent detail state, NOT reset on reseed (p5 semantics).
+  let perm;                 // Uint8Array(512), the seeded permutation lattice
+  let noiseOctaves = 4;     // p5 default LOD
+  let noiseFalloff = 0.5;   // p5 default amplitude falloff
+
+  // Build the noise permutation table from a sub-seed that is fully independent
+  // of the main stream, so the random() sequence is byte-identical whether or
+  // not noise is used, and independent of noise call order.
+  function buildNoise(seedString) {
+    const next = xmur3(seedString + "|noise");
+    const nrand = sfc32(next(), next(), next(), next());
+    for (let i = 0; i < 15; i++) nrand(); // warm-up (matches applySeed)
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    // Fisher–Yates shuffle driven by the noise sub-generator.
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(nrand() * (i + 1));
+      const t = p[i]; p[i] = p[j]; p[j] = t;
+    }
+    perm = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  }
+
   function applySeed(seedString) {
     currentSeed = seedString;
     const next = xmur3(seedString);
     rand = sfc32(next(), next(), next(), next());
     for (let i = 0; i < 15; i++) rand(); // warm-up
+    buildNoise(seedString); // independent sub-seed; leaves rand untouched
   }
 
   // ---- p5-style seeding ----
@@ -144,6 +171,58 @@ const $art = (function () {
   function randomElement(array) {
     if (!array || array.length === 0) return undefined;
     return array[randomInt(0, array.length - 1)];
+  }
+
+  // ---- Perlin noise (Ken Perlin's improved 3D gradient noise) ----
+  // Pure functions of coordinates + the seeded `perm` lattice. They draw NOTHING
+  // from the random() stream, so noise() is call-order independent (rule #3).
+
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function lerp(a, b, t) { return a + t * (b - a); }
+  function grad(hash, x, y, z) {
+    const h = hash & 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  }
+
+  // Single-octave 3D Perlin, ~[-1, 1].
+  function perlin3(x, y, z) {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = perm[X] + Y, AA = perm[A] + Z, AB = perm[A + 1] + Z;
+    const B = perm[X + 1] + Y, BA = perm[B] + Z, BB = perm[B + 1] + Z;
+    return lerp(
+      lerp(
+        lerp(grad(perm[AA], x, y, z), grad(perm[BA], x - 1, y, z), u),
+        lerp(grad(perm[AB], x, y - 1, z), grad(perm[BB], x - 1, y - 1, z), u),
+        v),
+      lerp(
+        lerp(grad(perm[AA + 1], x, y, z - 1), grad(perm[BA + 1], x - 1, y, z - 1), u),
+        lerp(grad(perm[AB + 1], x, y - 1, z - 1), grad(perm[BB + 1], x - 1, y - 1, z - 1), u),
+        v),
+      w);
+  }
+
+  // p5-compatible noise: noise(x) | noise(x,y) | noise(x,y,z) -> [0,1).
+  // Fractal sum over noiseOctaves (freq doubles, amp *= noiseFalloff per octave).
+  function noise(x, y = 0, z = 0) {
+    let sum = 0, amp = 1, freq = 1, max = 0;
+    for (let o = 0; o < noiseOctaves; o++) {
+      sum += amp * perlin3(x * freq, y * freq, z * freq);
+      max += amp;
+      amp *= noiseFalloff;
+      freq *= 2;
+    }
+    return (sum / max + 1) / 2; // normalize ~[-1,1] -> [0,1)
+  }
+
+  // p5-compatible noiseDetail(lod, falloff). Persistent detail state; unaffected
+  // by reseeding.
+  function noiseDetail(lod, falloff) {
+    if (typeof lod === "number" && lod > 0) noiseOctaves = lod;
+    if (typeof falloff === "number") noiseFalloff = falloff;
   }
 
   // ---- snapshot + traits (hidden DOM, survives in the HTML snapshot) ----
@@ -208,6 +287,8 @@ const $art = (function () {
     randomInt,
     randomBool,
     randomElement,
+    noise,
+    noiseDetail,
     setTraits,
     getTraits: () => currentTraits,
     snapshot,

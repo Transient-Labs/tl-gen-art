@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TL Gen Art — noise example</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+      }
+    </style>
+
+    <!--
+      Load order is determinism-critical (same as the p5 example):
+        1. p5   2. art.js (sets window.$art, seeds at load)   3. the sketch
+    -->
+    <script src="../lib/p5.min.js"></script>
+    <script src="../art.js"></script>
+  </head>
+  <body>
+    <script>
+      // A flow field: particles walk along angles read from $art.noise.
+      // Everything that affects the output flows through $art — structural
+      // choices from the random() stream, the field itself from $art.noise
+      // (its own stream, so it never disturbs those random() choices).
+
+      const PALETTES = [
+        { name: "Sunset",  bg: "#1a1423", colors: ["#ff6b6b", "#ffd93d", "#ff8e53", "#c44d56", "#f4e8c1"] },
+        { name: "Lagoon",  bg: "#06141b", colors: ["#0fa3b1", "#b5e2fa", "#f9f7f3", "#eddea4", "#f7a072"] },
+        { name: "Orchard", bg: "#1b1f17", colors: ["#a3b18a", "#588157", "#3a5a40", "#dad7cd", "#e9c46a"] },
+        { name: "Neon",    bg: "#0d0221", colors: ["#ff2a6d", "#05d9e8", "#d1f7ff", "#7700ff", "#fef9ef"] },
+        { name: "Ember",   bg: "#0b0a07", colors: ["#fb8b24", "#e36414", "#9a031e", "#5f0f40", "#ffba08"] },
+      ];
+
+      const SIZE = 800;
+      let chosen = {};
+
+      function setup() {
+        // Seed ONCE, before any drawing. tokenId + blockhash by default.
+        console.log("$art seed:", $art.getSeed());
+        createCanvas(SIZE, SIZE);
+        noLoop(); // static composition -> draw() runs exactly once
+      }
+
+      function draw() {
+        // ---- structural choices from the seeded random() stream ----
+        const palette = $art.randomElement(PALETTES);
+        const scale = $art.random(0.0015, 0.004); // noise frequency (field "zoom")
+        const swirl = $art.randomInt(2, 5);       // how many full turns the field spans
+        const lines = $art.randomInt(900, 1600);  // number of particle trails
+        const steps = 90;                          // samples per trail
+        const stepLen = 3;
+
+        // Optional: smoother field. noiseDetail is p5-compatible; defaults to 4/0.5.
+        $art.noiseDetail(3, 0.5);
+
+        background(palette.bg);
+        blendMode(SCREEN);
+
+        for (let i = 0; i < lines; i++) {
+          // Start point + color: from the random() stream (call order matters).
+          let x = $art.random(SIZE);
+          let y = $art.random(SIZE);
+          const c = color($art.randomElement(palette.colors));
+          c.setAlpha(28);
+          stroke(c);
+          strokeWeight(1);
+          noFill();
+
+          beginShape();
+          for (let s = 0; s < steps; s++) {
+            vertex(x, y);
+            // Angle from the noise field (independent stream — never touches
+            // the random() choices above).
+            const a = $art.noise(x * scale, y * scale) * TWO_PI * swirl;
+            x += Math.cos(a) * stepLen;
+            y += Math.sin(a) * stepLen;
+            if (x < 0 || x > SIZE || y < 0 || y > SIZE) break;
+          }
+          endShape();
+        }
+
+        blendMode(BLEND);
+        chosen = { Palette: palette.name, Swirl: swirl, Trails: lines };
+
+        // ---- mint pipeline: traits + snapshot, AFTER drawing ----
+        $art.setTraits(chosen);
+        $art.snapshot(); // last: signals Cloudflare the render is complete
+      }
+    </script>
+  </body>
+</html>
